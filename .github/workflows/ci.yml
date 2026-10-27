@@ -1,0 +1,58 @@
+# Builds the warehouse from empty in an Oracle 23ai Free container on a
+# referentially consistent 10% sample of the data, then runs the test suite.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ORACLE_PASSWORD: FinData_CI_only_2026   # throw-away container, never reused
+      FD_DATA_DIR: ../data/ci                 # relative to docker/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PKDD'99 files
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: berka-${{ hashFiles('scripts/download_data.py') }}
+
+      - name: Download and verify the dataset (sha256)
+        run: python3 scripts/download_data.py
+
+      - name: Build the CI sample (every 10th account)
+        run: bash scripts/make_ci_sample.sh data/raw data/ci 10
+
+      - name: Start Oracle and wait until healthy
+        run: docker compose -p findata -f docker/docker-compose.yml up -d --wait --wait-timeout 900
+
+      - name: Build and load (scripts/run_all.sql)
+        run: bash scripts/sqlplus.sh scripts/run_all.sql
+
+      - name: Test suite
+        run: bash scripts/sqlplus.sh sql/90_tests/run_tests.sql
+
+      - name: Evidence reports
+        if: always()
+        run: |
+          mkdir -p ci-out
+          bash scripts/sqlplus.sh sql/95_report/01_run_results.sql > ci-out/run_results.md || true
+          bash scripts/sqlplus.sh sql/80_perf/04_perf_report.sql   > ci-out/performance.md || true
+          docker logs findata-oracle > ci-out/oracle-container.log 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: findata-ci-reports
+          path: ci-out/
