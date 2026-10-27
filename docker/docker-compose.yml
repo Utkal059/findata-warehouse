@@ -1,0 +1,31 @@
+# Oracle Database 23ai Free for local development and CI.
+# Memory-light: Oracle Free caps itself at 2 GB of RAM and the container is
+# limited to 3 GB, which leaves room on an 8 GB WSL machine.
+# Start with:  docker compose -p findata -f docker/docker-compose.yml up -d
+
+services:
+  oracle:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: findata-oracle
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-FinData_Local_2026}
+    ports:
+      - "${ORACLE_PORT:-1521}:1521"
+    mem_limit: 3g
+    volumes:
+      # Source files for the external tables (read-only)
+      - ${FD_DATA_DIR:-../data/raw}:/opt/oracle/fd_data:ro
+      # Repository, so SQL*Plus can run scripts/run_all.sql inside the container
+      - ..:/workspace:ro
+      # Runs on every start: external-table log directory, 5 x 256 MB redo logs
+      - ./startdb:/container-entrypoint-startdb.d:ro
+      - oradata:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 20s
+
+volumes:
+  oradata:
