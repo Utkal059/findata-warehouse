@@ -1,0 +1,5 @@
+# SQL*Plus and bash run inside a Linux container: keep LF everywhere,
+# even when the repo is checked out on Windows.
+* text=auto eol=lf
+*.png binary
+*.zip binary
